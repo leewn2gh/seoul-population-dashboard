@@ -58,14 +58,16 @@ python -m streamlit run app.py
 app.py                          대시보드 (DashboardApp)                 이준호
 src/models.py                   PopulationRecord, CityRecord, Place, District   이준호
 src/repository.py               PlaceRepository, load_repository()     이준호
+src/recommend.py                Predictor, Recommender, Geocoder       이준호
 src/charts/base.py              BaseChart (모든 차트의 부모)            이준호
 src/charts/__init__.py          페이지 목록                             이준호
-src/charts/congestion_map.py    메인: 서울 혼잡도 지도                  김재겸
-src/charts/youth.py             연령 구성 비교                          이다혜
-src/charts/visitor.py           장소 이용 특성                          장현규
-src/charts/heatmap.py           요일 × 시간 혼잡 패턴                   김경진
+src/charts/congestion_map.py    지금 어디가 붐빌까? (혼잡도 지도)       김재겸
+src/charts/recommend.py         근처 어디로 갈까? (근처 추천)           김재겸
+src/charts/youth.py             누가 주로 올까? (연령 구성)             이다혜
+src/charts/visitor.py           주민이 많을까, 방문객이 많을까?         장현규
+src/charts/heatmap.py           언제 가면 한산할까? (요일 × 시간)       김경진
 src/charts/hourly.py            참고용 예시 차트
-collector/                      자동 수집 (GitHub Actions)              이준호
+collector/                      자동 수집: ApiCollector → PopulationCollector, CityDataCollector   이준호
 data/sample/                    가짜 데이터 (scripts/make_sample.py로 생성)
 data/places.xlsx                서울시 주요 121장소 목록
 ```
@@ -73,11 +75,16 @@ data/places.xlsx                서울시 주요 121장소 목록
 ## 클래스 구조
 
 ```
+ApiCollector «abstract» ◁── PopulationCollector, CityDataCollector        (수집)
+
 DashboardApp ──▶ PlaceRepository ◆──▶ District ◆──▶ Place ◆──▶ PopulationRecord, CityRecord
+     │                 ▲
+     │      Recommender ──▶ Predictor,   Geocoder «abstract» ◁── PlaceGeocoder
      │
-     └──▶ BaseChart «abstract»  controls(repo) → render(repo, place) → [Figure]
+     └──▶ BaseChart «abstract»
+            controls → summary_text → summary_cards → render → details
               △
-   CongestionMapChart · YouthChart · VisitorChart · CongestionHeatmapChart
+   CongestionMapChart · RecommendChart · CongestionHeatmapChart · YouthChart · VisitorChart
 ```
 
 ## 팀원 작업 방법

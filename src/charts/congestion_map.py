@@ -19,7 +19,7 @@ import streamlit as st
 
 from ..models import Place
 from ..repository import DATA_DIR, PlaceRepository
-from .base import CONGESTION_COLORBAR, CONGESTION_ORDER, CONGESTION_SCALE, BaseChart
+from .base import CONGESTION_COLORBAR, CONGESTION_ORDER, CONGESTION_SCALE, BaseChart, term
 
 DISTRICT_GEOJSON = DATA_DIR / "seoul_districts.geojson"
 PLACE_GEOJSON = DATA_DIR / "seoul_places.geojson"
@@ -77,6 +77,16 @@ class CongestionMapChart(BaseChart):
             "문화행사": f"{city.event_cnt}건",
             "사고통제": f"{city.accident_cnt}건",
         }
+
+    def summary_text(self, repo: PlaceRepository, place: Optional[Place]) -> str:
+        """
+        [기말] 고른 시각(self.hour)에 가장 붐비는 장소 3곳을 한 문장으로.
+          "{시}시에는 {1등}, {2등}, {3등}이 가장 붐벼요"
+        순서: 그 시각 평균 혼잡도 점수 높은 순, 같으면 그 시각 평균 인구 많은 순
+
+        확인 (가짜 데이터, 18시): "18시에는 샘플_명동, 샘플_홍대, 샘플_여의도공원이 가장 붐벼요"
+        """
+        raise NotImplementedError
 
     def _district_layer(self, repo: PlaceRepository) -> pd.DataFrame:
         """repo.districts()로 자치구별 값 계산. 열: district, avg_congestion, total_population (self.hour 기준)

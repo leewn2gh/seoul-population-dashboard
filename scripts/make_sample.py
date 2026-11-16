@@ -1,7 +1,8 @@
 """
 가짜 데이터 생성 (담당: 이준호) — 결과가 항상 같도록 난수를 쓰지 않는다.
 실행: python scripts/make_sample.py
-결과: data/sample/raw/sample.csv, data/sample/raw_city/sample.csv, data/sample/place_district.csv
+결과: data/sample/raw/sample.csv, data/sample/raw_city/sample.csv, data/sample/place_district.csv,
+      data/sample/place_location.csv
 
 규칙
 - 기간: 2026-10-05(월) 0시 ~ 2026-10-18(일) 23시, 1시간 간격 (장소당 336줄)
@@ -17,6 +18,13 @@ from pathlib import Path
 import pandas as pd
 
 OUT = Path(__file__).resolve().parent.parent / "data" / "sample"
+
+# 장소 중심 좌표 (위도, 경도) — 실제 위치 근처
+LOCATIONS = {
+    "POI001": (37.4979, 127.0276), "POI002": (37.5563, 126.9220), "POI003": (37.5636, 126.9827),
+    "POI004": (37.5256, 126.9224), "POI005": (37.5658, 126.9751), "POI006": (37.5133, 127.1001),
+    "POI007": (37.5444, 127.0374), "POI008": (37.4816, 126.8826),
+}
 
 # 코드, 이름, 분류, 자치구, 기준인구, (10대, 20대, 30대), 거주 비율
 PLACES = [
@@ -84,4 +92,6 @@ pd.DataFrame(pop_rows).to_csv(OUT / "raw" / "sample.csv", index=False, encoding=
 pd.DataFrame(city_rows).to_csv(OUT / "raw_city" / "sample.csv", index=False, encoding="utf-8-sig")
 pd.DataFrame([{"AREA_CD": p[0], "DISTRICT": p[3]} for p in PLACES]).to_csv(
     OUT / "place_district.csv", index=False, encoding="utf-8-sig")
+pd.DataFrame([{"AREA_CD": c, "LAT": lat, "LNG": lng} for c, (lat, lng) in LOCATIONS.items()]).to_csv(
+    OUT / "place_location.csv", index=False, encoding="utf-8-sig")
 print(f"saved {len(pop_rows)} rows → {OUT}")
