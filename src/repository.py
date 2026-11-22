@@ -4,9 +4,10 @@
 수집 CSV를 읽어 Place / District / Record 객체를 만들고 조회 기능을 제공한다.
 차트 담당은 load_repository() 로 저장소를 받아 쓰면 된다.
 """
+import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 
@@ -17,13 +18,24 @@ DATA_DIR = ROOT / "data"
 SAMPLE_DIR = DATA_DIR / "sample"
 PLACES_FILE = DATA_DIR / "places.xlsx"            # 장소 분류
 DISTRICT_FILE = DATA_DIR / "place_district.csv"   # 장소 → 자치구 (AREA_CD, DISTRICT)
+PLACES_GEOJSON = DATA_DIR / "seoul_places.geojson"       # 장소 영역 (좌표 계산용)
+DISTRICTS_GEOJSON = DATA_DIR / "seoul_districts.geojson" # 자치구 경계
 
 
 def load_repository() -> "PlaceRepository":
     """실제 수집 데이터(data/raw)가 있으면 그걸, 없으면 가짜 데이터(data/sample)를 읽는다."""
     if any((DATA_DIR / "raw").glob("*.csv")):
         return PlaceRepository(DATA_DIR / "raw", DATA_DIR / "raw_city", DISTRICT_FILE)
-    return PlaceRepository(SAMPLE_DIR / "raw", SAMPLE_DIR / "raw_city", SAMPLE_DIR / "place_district.csv")
+    return PlaceRepository(SAMPLE_DIR / "raw", SAMPLE_DIR / "raw_city", SAMPLE_DIR / "place_district.csv",
+                           SAMPLE_DIR / "place_location.csv")
+
+
+def polygon_center(geometry: dict) -> Tuple[float, float]:
+    """GeoJSON Polygon / MultiPolygon의 중심 (위도, 경도). 가장 큰 바깥 고리의 꼭짓점 평균"""
+    rings = [geometry["coordinates"][0]] if geometry["type"] == "Polygon" else [p[0] for p in geometry["coordinates"]]
+    ring = max(rings, key=len)
+    pts = ring[:-1] if ring[0] == ring[-1] else ring
+    return sum(p[1] for p in pts) / len(pts), sum(p[0] for p in pts) / len(pts)
 
 
 def _num(v) -> Optional[float]:
@@ -38,10 +50,11 @@ class PlaceRepository:
     """모든 Place와 District를 보관하고 조회한다."""
 
     def __init__(self, pop_path: Union[str, Path], city_path: Union[str, Path, None] = None,
-                 district_path: Union[str, Path, None] = None):
+                 district_path: Union[str, Path, None] = None, location_path: Union[str, Path, None] = None):
         self.pop_path = Path(pop_path)
         self.city_path = Path(city_path) if city_path else None
         self.district_path = Path(district_path) if district_path else None
+        self.location_path = Path(location_path) if location_path else None
         self._places: Dict[str, Place] = {}
         self._districts: Dict[str, District] = {}
         self._load()
@@ -60,13 +73,15 @@ class PlaceRepository:
         df = df.drop_duplicates(subset=["AREA_CD", "PPLTN_TIME"])
         categories = self._categories(df)
         districts = self._district_map()
+        locations = self._location_map()
 
         for row in df.itertuples(index=False):
             r = row._asdict()
             code = str(r["AREA_CD"])
             place = self._places.get(r["AREA_NM"])
             if place is None:
-                place = Place(r["AREA_NM"], code, categories.get(code, "미분류"), districts.get(code))
+                place = Place(r["AREA_NM"], code, categories.get(code, "미분류"), districts.get(code),
+                              location=locations.get(code))
                 self._places[place.name] = place
             place.add_record(PopulationRecord(
                 time=r["PPLTN_TIME"].to_pydatetime(),
@@ -125,6 +140,16 @@ class PlaceRepository:
             return dict(zip(d["AREA_CD"].astype(str), d["DISTRICT"]))
         return {}
 
+    def _location_map(self) -> Dict[str, Tuple[float, float]]:
+        """장소 코드 → 중심 좌표. 좌표 CSV(AREA_CD, LAT, LNG)가 있으면 그것을, 없으면 장소 영역 GeoJSON에서 계산"""
+        if self.location_path and self.location_path.exists():
+            d = pd.read_csv(self.location_path)
+            return {str(c): (float(a), float(b)) for c, a, b in zip(d["AREA_CD"], d["LAT"], d["LNG"])}
+        if PLACES_GEOJSON.exists():
+            features = json.loads(PLACES_GEOJSON.read_text(encoding="utf-8"))["features"]
+            return {f["properties"]["AREA_CD"]: polygon_center(f["geometry"]) for f in features}
+        return {}
+
     # ── 조회 ───────────────────────────────────────────
     def get(self, name: str) -> Place:
         return self._places[name]
@@ -141,6 +166,11 @@ class PlaceRepository:
     def by_category(self, category: Optional[str]) -> List[Place]:
         """category가 None이면 전체"""
         return [p for p in self._places.values() if category in (None, p.category)]
+
+    def period(self) -> Tuple[datetime, datetime]:
+        """전체 기록의 첫 시각과 마지막 시각"""
+        times = [r.time for p in self._places.values() for r in p.records]
+        return min(times), max(times)
 
     def districts(self) -> List[District]:
         return sorted(self._districts.values(), key=lambda d: d.name)

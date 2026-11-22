@@ -1,5 +1,5 @@
 """
-서울시 실시간 도시데이터 수집기 (담당: 조장)
+서울시 실시간 도시데이터 수집기 (담당: 이준호)
 
 도시데이터 응답은 장소 하나에 수십~수백 KB라서 원본을 매번 저장하지 않고,
 장소·시각별 '요약 숫자'만 data/raw_city/YYYY-MM-DD.csv 에 저장한다.
@@ -19,25 +19,14 @@
 import json
 import os
 import sys
-import time
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+import threading
 from pathlib import Path
-
-import pandas as pd
-import requests
+from typing import List
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from collect import KST, ROOT, load_place_codes  # noqa: E402
+from api_collector import ROOT, ApiCollector, ApiError, api_error_message  # noqa: E402
 
-API_URL = "http://openapi.seoul.go.kr:8088/{key}/json/citydata/1/5/{area}"
-RAW_DIR = Path(os.environ.get("CITY_RAW_DIR", ROOT / "data" / "raw_city"))
-SAMPLE_DIR = Path(os.environ.get("SAMPLE_DIR", ROOT / "data" / "samples"))
 SIZE_WARN_MB = 5
-
-
-class ApiError(Exception):
-    pass
 
 
 # ── 응답 안에서 항목 찾기 (항목 위치가 바뀌어도 이름으로 찾음) ──────────
@@ -91,8 +80,8 @@ def scalars(d, prefix):
     return {f"{prefix}{k}": v for k, v in d.items() if not isinstance(v, (dict, list))}
 
 
-# ── 요약 ──────────────────────────────────────────────
 def summarize(city: dict) -> dict:
+    """도시데이터 원본(CITYDATA) → 요약 한 줄"""
     parking = find_list(city, "PRK_STTS")
     subway = find_list(city, "SUB_STTS")
     bus = find_list(city, "BUS_STN_STTS")
@@ -130,88 +119,49 @@ def summarize(city: dict) -> dict:
     return row
 
 
-# ── 호출·저장 ─────────────────────────────────────────
-def fetch_city(key: str, code: str, retries: int = 3) -> dict:
-    last_error = None
-    for attempt in range(retries):
-        try:
-            resp = requests.get(API_URL.format(key=key, area=code), timeout=40)
-            resp.raise_for_status()
-            data = resp.json()
-            city = data.get("CITYDATA") or find_key(data, "CITYDATA")
-            if not isinstance(city, dict) or "AREA_NM" not in city:
-                result = data.get("RESULT", {})
-                code_ = result.get("RESULT.CODE") or result.get("CODE")
-                msg = result.get("RESULT.MESSAGE") or result.get("MESSAGE")
-                raise ApiError(f"{code_} {msg}")
-            return city
-        except ApiError:
-            raise
-        except Exception as e:
-            last_error = e
-            time.sleep(3 * (attempt + 1))
-    raise ApiError(f"요청 실패: {last_error}")
+class CityDataCollector(ApiCollector):
+    """실시간 도시데이터 (citydata) 요약"""
 
+    NAME = "도시데이터"
+    KEY_ENV = "SEOUL_CITYDATA_KEY"
+    OUT_ENV = "CITY_RAW_DIR"
+    DEFAULT_OUT = ROOT / "data" / "raw_city"
+    SERVICE = "citydata"
+    TIMEOUT = 40          # 응답이 커서 인구데이터보다 길게
+    RETRY_WAIT = 3
+    DEDUP = ("AREA_CD", "COLLECTED_AT")
 
-def save_sample_once(city: dict) -> None:
-    SAMPLE_DIR.mkdir(parents=True, exist_ok=True)
-    path = SAMPLE_DIR / f"citydata_{city.get('AREA_CD', 'sample')}.json"
-    if not any(SAMPLE_DIR.glob("citydata_*.json")):
-        path.write_text(json.dumps(city, ensure_ascii=False, indent=1), encoding="utf-8")
-        print(f"확인용 원본 저장: {path}")
+    def __init__(self, *args, sample_dir: Path = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sample_dir = Path(sample_dir or os.environ.get("SAMPLE_DIR", ROOT / "data" / "samples"))
+        self._sample = None
+        self._lock = threading.Lock()
 
+    def parse(self, data: dict) -> dict:
+        city = data.get("CITYDATA") or find_key(data, "CITYDATA")
+        if not isinstance(city, dict) or "AREA_NM" not in city:
+            raise ApiError(api_error_message(data))
+        with self._lock:                      # 확인용 원본은 처음 받은 1개만 기억
+            if self._sample is None:
+                self._sample = city
+        return summarize(city)
 
-def save(rows: list) -> Path:
-    RAW_DIR.mkdir(parents=True, exist_ok=True)
-    path = RAW_DIR / f"{datetime.now(KST):%Y-%m-%d}.csv"
-    new = pd.DataFrame(rows)
-    if path.exists():
-        new = pd.concat([pd.read_csv(path, dtype=str), new.astype(str)], ignore_index=True)
-    new = new.drop_duplicates(subset=["AREA_CD", "COLLECTED_AT"], keep="first")
-    new.to_csv(path, index=False, encoding="utf-8-sig")
-    size_mb = path.stat().st_size / 1e6
-    if size_mb > SIZE_WARN_MB:
-        print(f"::warning::도시데이터 하루 파일이 {size_mb:.1f}MB 로 예상보다 큽니다: {path.name}")
-    return path
+    def after_collect(self, rows: List[dict]) -> None:
+        """확인용 원본 응답을 한 번만 저장"""
+        if self._sample is None:
+            return
+        self.sample_dir.mkdir(parents=True, exist_ok=True)
+        if not any(self.sample_dir.glob("citydata_*.json")):
+            path = self.sample_dir / f"citydata_{self._sample.get('AREA_CD', 'sample')}.json"
+            path.write_text(json.dumps(self._sample, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"확인용 원본 저장: {path}")
 
-
-def main() -> int:
-    key = os.environ.get("SEOUL_CITYDATA_KEY", "").strip()
-    if not key:
-        print("SEOUL_CITYDATA_KEY 가 설정되지 않았습니다.")
-        return 1
-
-    codes = load_place_codes()
-    collected_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
-
-    def task(code):
-        try:
-            city = fetch_city(key, code)
-            return code, city, None
-        except Exception as e:
-            return code, None, str(e)
-
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        results = list(pool.map(task, codes))
-
-    cities = [c for _, c, _ in results if c]
-    errors = [(code, err) for code, _, err in results if err]
-    print(f"도시데이터 수집 {len(cities)}곳 / 실패 {len(errors)}곳 ({collected_at})")
-    for code, err in errors[:10]:
-        print(f"  - {code}: {err}")
-    if not cities:
-        print("한 곳도 수집하지 못했습니다. 인증키와 호출 한도를 확인하세요.")
-        return 1
-
-    save_sample_once(cities[0])
-    rows = []
-    for city in cities:
-        row = summarize(city)
-        row["COLLECTED_AT"] = collected_at
-        rows.append(row)
-    print(f"저장: {save(rows)}")
-    return 0
+    def check_file(self, path: Path) -> None:
+        size_mb = path.stat().st_size / 1e6
+        if size_mb > SIZE_WARN_MB:
+            print(f"::warning::도시데이터 하루 파일이 {size_mb:.1f}MB 로 예상보다 큽니다: {path.name}")
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    collector = CityDataCollector.from_env()
+    sys.exit(collector.run() if collector else 1)

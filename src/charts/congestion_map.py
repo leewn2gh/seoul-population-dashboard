@@ -19,16 +19,18 @@ import streamlit as st
 
 from ..models import Place
 from ..repository import DATA_DIR, PlaceRepository
-from .base import CONGESTION_ORDER, BaseChart
+from .base import CONGESTION_COLORBAR, CONGESTION_ORDER, CONGESTION_SCALE, BaseChart, term
 
 DISTRICT_GEOJSON = DATA_DIR / "seoul_districts.geojson"
 PLACE_GEOJSON = DATA_DIR / "seoul_places.geojson"
 
-# 혼잡할수록 진하게 (점수 1~4 고정)
-COLOR_SCALE = [[0.0, "#FFF5E6"], [0.33, "#FDC07A"], [0.67, "#F0703C"], [1.0, "#B3241E"]]
-COLORBAR = dict(title="혼잡도", tickvals=[1, 2, 3, 4], ticktext=CONGESTION_ORDER)
-NO_DATA_COLOR = "#E5E5E5"
-BASE_COLOR = "#F4F4F4"
+# 혼잡도 색은 히트맵과 같은 공통 색 사용 (점수 1~4 고정)
+COLOR_SCALE = CONGESTION_SCALE
+COLORBAR = CONGESTION_COLORBAR
+NO_DATA_COLOR = "rgba(150, 150, 150, 0.40)"   # 반투명 회색 (라이트·다크 모드 공통)
+BASE_COLOR = "rgba(150, 150, 150, 0.15)"
+BORDER_COLOR = "rgba(150, 150, 150, 0.70)"
+SELECTED_COLOR = "#1E88E5"                     # 선택한 장소 테두리
 UNITS = ["장소", "자치구"]
 
 
@@ -57,8 +59,7 @@ class CongestionMapChart(BaseChart):
         else:
             self._add_place_traces(fig, repo, place)
         fig.update_geos(fitbounds="geojson", visible=False, projection_type="mercator")
-        fig = self._apply_theme(fig, height=760)
-        fig.update_layout(title=f"{self.title} · {self.unit} 단위 ({self.hour}시 기준)")
+        fig = self._apply_theme(fig, height=760, title=f"{self.title} · {self.unit} 단위 ({self.hour}시 기준)")
         return [fig]
 
     def summary_cards(self, place: Optional[Place]) -> Dict[str, str]:
@@ -76,6 +77,16 @@ class CongestionMapChart(BaseChart):
             "문화행사": f"{city.event_cnt}건",
             "사고통제": f"{city.accident_cnt}건",
         }
+
+    def summary_text(self, repo: PlaceRepository, place: Optional[Place]) -> str:
+        """
+        [기말] 고른 시각(self.hour)에 가장 붐비는 장소 3곳을 한 문장으로.
+          "{시}시에는 {1등}, {2등}, {3등}이 가장 붐벼요"
+        순서: 그 시각 평균 혼잡도 점수 높은 순, 같으면 그 시각 평균 인구 많은 순
+
+        확인 (가짜 데이터, 18시): "18시에는 샘플_명동, 샘플_홍대, 샘플_여의도공원이 가장 붐벼요"
+        """
+        raise NotImplementedError
 
     def _district_layer(self, repo: PlaceRepository) -> pd.DataFrame:
         """repo.districts()로 자치구별 값 계산. 열: district, avg_congestion, total_population (self.hour 기준)
@@ -119,7 +130,7 @@ class CongestionMapChart(BaseChart):
             geojson=geo, featureidkey="properties.name",
             locations=df["district"], z=df["avg_congestion"], zmin=1, zmax=4,
             colorscale=COLOR_SCALE, colorbar=COLORBAR,
-            marker_line_color="white", marker_line_width=1,
+            marker_line_color=BORDER_COLOR, marker_line_width=1,
             customdata=df[["total_population"]].assign(level=df["avg_congestion"].map(self._level)),
             hovertemplate=("<b>%{location}</b><br>평균 혼잡도 %{z:.2f} (%{customdata[1]})"
                            "<br>평균 인구 합 %{customdata[0]:,.0f}명<extra></extra>"),
@@ -148,7 +159,7 @@ class CongestionMapChart(BaseChart):
                 geojson=geo, featureidkey="properties.AREA_CD",
                 locations=[place.code], z=[0], showscale=False, hoverinfo="skip",
                 colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(0,0,0,0)"]],
-                marker_line_color="#1F3A93", marker_line_width=3,
+                marker_line_color=SELECTED_COLOR, marker_line_width=3,
             ))
 
     def _base_districts(self, geo: dict, color: str, hover: Optional[str]) -> go.Choropleth:
@@ -156,7 +167,7 @@ class CongestionMapChart(BaseChart):
         return go.Choropleth(
             geojson=geo, featureidkey="properties.name", locations=names, z=[0] * len(names),
             colorscale=[[0, color], [1, color]], showscale=False,
-            marker_line_color="white" if hover else "#BBBBBB", marker_line_width=1,
+            marker_line_color=BORDER_COLOR, marker_line_width=1,
             hovertemplate=f"<b>%{{location}}</b><br>{hover}<extra></extra>" if hover else "%{location}<extra></extra>",
         )
 

@@ -14,7 +14,7 @@ import streamlit as st
 
 from ..models import Place
 from ..repository import PlaceRepository
-from .base import BaseChart
+from .base import CATEGORY_COLORS, PRIMARY, PRIMARY_LIGHT, BaseChart, term
 
 
 class VisitorChart(BaseChart):
@@ -45,6 +45,7 @@ class VisitorChart(BaseChart):
             "종료일", value=self.end or max(dates, default=None),
             key="visitor_end",
         )
+        st.caption("기간은 아래 시간대별 그래프에만 적용됩니다. 위 산점도는 전체 기간 평균입니다.")
 
     def render(self, repo: PlaceRepository, place: Optional[Place]) -> List[go.Figure]:
         """[_scatter(...), _stacked_by_hour(place)] 2개를 돌려준다 (기간 지정 시 place.records_between 사용)"""
@@ -53,7 +54,8 @@ class VisitorChart(BaseChart):
             return []
 
         # 산점도는 선택한 날짜와 관계없이 전체 기간 요약을 사용한다.
-        figures = [self._apply_theme(self._scatter(repo.summary_dataframe(self.category)))]
+        figures = [self._apply_theme(self._scatter(repo.summary_dataframe(self.category)), height=480,
+                                     title="장소별 평균 인구와 방문자 비율 (전체 기간)")]
         if place is None:
             st.info("시간대별 거주·방문 비율을 보려면 장소를 선택해 주세요.")
             return figures
@@ -64,8 +66,33 @@ class VisitorChart(BaseChart):
             st.info("선택한 기간에 해당 장소의 인구 기록이 없습니다.")
             return figures
 
-        figures.append(self._apply_theme(self._stacked_by_hour(place)))
+        figures.append(self._apply_theme(self._stacked_by_hour(place), title=f"{place.name} · 시간대별 거주·방문 비율"))
         return figures
+
+    # ── 기말 ───────────────────────────────────────────
+    def summary_text(self, repo: PlaceRepository, place: Optional[Place]) -> str:
+        """
+        고른 장소의 방문자 비율을 한 문장으로. place.avg_visitor_rate() 사용
+          50% 이상: "{장소}는 방문객이 {비율:.0f}%로, 주로 다른 동네에서 찾아오는 곳이에요"
+          50% 미만: "{장소}는 주민이 {100-비율:.0f}%로, 주로 동네 사람이 찾는 곳이에요"
+
+        확인 (가짜 데이터): 샘플_강남역 → "샘플_강남역는 방문객이 90%로, 주로 다른 동네에서 찾아오는 곳이에요"
+        """
+        raise NotImplementedError
+
+    def details(self, repo: PlaceRepository, place: Optional[Place]) -> List[go.Figure]:
+        """지금 render()에 있는 산점도 + 시간대별 거주·방문 누적 막대를 그대로 옮겨서 돌려준다"""
+        raise NotImplementedError
+
+    def _top_visitor(self, df: pd.DataFrame, n: int = 10) -> pd.DataFrame:
+        """
+        render()의 새 기본 그래프용 표: 방문자 비율(visitor_rate) 높은 순 n개 (같으면 이름 순)
+        그래프는 가로 막대, 고른 장소 막대만 PRIMARY, 나머지는 PRIMARY_LIGHT
+
+        확인 (가짜 데이터, 전체): 샘플_덕수궁 97.0 / 샘플_홍대 95.0 / 샘플_명동 92.0 / 샘플_강남역 90.0 /
+                                 샘플_가산디지털단지 85.0 / 샘플_서울숲 75.0 / 샘플_여의도공원 70.0 / 샘플_잠실 60.0
+        """
+        raise NotImplementedError
 
     def _scatter(self, df: pd.DataFrame) -> go.Figure:
         """summary_dataframe 결과로 산점도. x=avg_population, y=visitor_rate, 색=category, 마우스 올리면 name"""
@@ -74,7 +101,7 @@ class VisitorChart(BaseChart):
         else:
             fig = px.scatter(
                 df, x="avg_population", y="visitor_rate", color="category",
-                hover_name="name",
+                hover_name="name", color_discrete_map=CATEGORY_COLORS,
                 labels={"avg_population": "평균 인구(명)",
                         "visitor_rate": "방문자 비율(%)", "category": "장소 분류"},
             )
@@ -91,8 +118,8 @@ class VisitorChart(BaseChart):
         hourly = place.visitor_rate_by_hour()
         fig = go.Figure()
         for column, label, color in [
-            ("resident_rate", "거주자", "#4C78A8"),
-            ("non_resident_rate", "방문자", "#F28E2B"),
+            ("resident_rate", "거주자", PRIMARY),
+            ("non_resident_rate", "방문자", PRIMARY_LIGHT),
         ]:
             fig.add_trace(go.Bar(
                 x=hourly["hour"], y=hourly[column], name=label,

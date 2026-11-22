@@ -4,14 +4,53 @@
 
 ## 실행 방법
 
+### 준비물
+- [Python 3.10 이상](https://www.python.org/downloads/) (설치할 때 "Add python.exe to PATH" 체크)
+- [Git](https://git-scm.com/downloads) — 실제 수집 데이터를 받을 때 필요
+- 편집기는 VS Code 권장
+
+### 1. 저장소 받기
+
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+git clone https://github.com/JNO-SW/seoul-population-dashboard.git
+cd seoul-population-dashboard
 ```
 
-브라우저에서 `http://localhost:8501` 이 열립니다.
+Fork·GitHub Desktop을 쓰면 Clone 후 VS Code에서 `파일 > 폴더 열기`로 이 폴더를 열고 `터미널 > 새 터미널`을 엽니다.
 
-> `data/raw`에 실제 수집 데이터가 없으면 `data/sample`의 **가짜 데이터**(장소 8곳 × 2주)로 실행됩니다.
+### 2. 패키지 설치 (처음 한 번)
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. 실제 수집 데이터 받기 (선택)
+
+```bash
+git fetch origin data
+git checkout origin/data -- data/raw data/raw_city
+git restore --staged data
+```
+
+- 이 단계를 건너뛰면 `data/sample`의 **가짜 데이터**(장소 8곳 × 2주)로 실행됩니다.
+- 받은 데이터는 `.gitignore`에 있어 커밋되지 않습니다. 최신 데이터가 필요할 때마다 다시 실행하면 됩니다.
+
+### 4. 실행
+
+```bash
+python -m streamlit run app.py
+```
+
+브라우저에서 `http://localhost:8501` 이 열립니다. 종료는 터미널에서 `Ctrl + C`.
+
+### 자주 나는 오류
+
+| 증상 | 해결 |
+|---|---|
+| `git` 용어가 인식되지 않습니다 | Git 설치 후 VS Code를 완전히 껐다 켜기. 그래도 안 되면 터미널에 `$env:Path += ";C:\Program Files\Git\cmd"` 입력 후 다시 실행 |
+| `streamlit` 용어가 인식되지 않습니다 | `streamlit run` 대신 `python -m streamlit run app.py` 사용 |
+| `Import openpyxl failed` | `pip install -r requirements.txt` 다시 실행 |
+| 지도가 비어 보임 | 지도 배경 파일을 인터넷에서 받아오므로 인터넷 연결 확인 |
 
 ## 폴더 구조
 
@@ -19,14 +58,16 @@ streamlit run app.py
 app.py                          대시보드 (DashboardApp)                 이준호
 src/models.py                   PopulationRecord, CityRecord, Place, District   이준호
 src/repository.py               PlaceRepository, load_repository()     이준호
+src/recommend.py                Predictor, Recommender, Geocoder       이준호
 src/charts/base.py              BaseChart (모든 차트의 부모)            이준호
 src/charts/__init__.py          페이지 목록                             이준호
-src/charts/congestion_map.py    메인: 서울 혼잡도 지도                  김재겸
-src/charts/youth.py             연령 구성 비교                          이다혜
-src/charts/visitor.py           장소 이용 특성                          장현규
-src/charts/heatmap.py           요일 × 시간 혼잡 패턴                   김경진
+src/charts/congestion_map.py    지금 어디가 붐빌까? (혼잡도 지도)       김재겸
+src/charts/recommend.py         근처 어디로 갈까? (근처 추천)           김재겸
+src/charts/youth.py             누가 주로 올까? (연령 구성)             이다혜
+src/charts/visitor.py           주민이 많을까, 방문객이 많을까?         장현규
+src/charts/heatmap.py           언제 가면 한산할까? (요일 × 시간)       김경진
 src/charts/hourly.py            참고용 예시 차트
-collector/                      자동 수집 (GitHub Actions)              이준호
+collector/                      자동 수집: ApiCollector → PopulationCollector, CityDataCollector   이준호
 data/sample/                    가짜 데이터 (scripts/make_sample.py로 생성)
 data/places.xlsx                서울시 주요 121장소 목록
 ```
@@ -34,11 +75,16 @@ data/places.xlsx                서울시 주요 121장소 목록
 ## 클래스 구조
 
 ```
+ApiCollector «abstract» ◁── PopulationCollector, CityDataCollector        (수집)
+
 DashboardApp ──▶ PlaceRepository ◆──▶ District ◆──▶ Place ◆──▶ PopulationRecord, CityRecord
+     │                 ▲
+     │      Recommender ──▶ Predictor,   Geocoder «abstract» ◁── PlaceGeocoder
      │
-     └──▶ BaseChart «abstract»  controls(repo) → render(repo, place) → [Figure]
+     └──▶ BaseChart «abstract»
+            controls → summary_text → summary_cards → render → details
               △
-   CongestionMapChart · YouthChart · VisitorChart · CongestionHeatmapChart
+   CongestionMapChart · RecommendChart · CongestionHeatmapChart · YouthChart · VisitorChart
 ```
 
 ## 팀원 작업 방법
