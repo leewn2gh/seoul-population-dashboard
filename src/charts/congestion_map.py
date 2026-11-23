@@ -34,6 +34,24 @@ SELECTED_COLOR = "#1E88E5"                     # 선택한 장소 테두리
 UNITS = ["장소", "자치구"]
 
 
+def _has_batchim(word: str) -> bool:
+    """마지막 한글 글자에 받침이 있는지 (한글이 없으면 있다고 본다)"""
+    for ch in reversed(word):
+        if "가" <= ch <= "힣":
+            return (ord(ch) - ord("가")) % 28 != 0
+    return True
+
+
+def subject_josa(word: str) -> str:
+    """단어 뒤에 붙일 주격 조사 "이" / "가" """
+    return "이" if _has_batchim(word) else "가"
+
+
+def object_josa(word: str) -> str:
+    """단어 뒤에 붙일 목적격 조사 "을" / "를" """
+    return "을" if _has_batchim(word) else "를"
+
+
 class CongestionMapChart(BaseChart):
     title = "서울 혼잡도 지도"
     owner = "김재겸"
@@ -86,7 +104,17 @@ class CongestionMapChart(BaseChart):
 
         확인 (가짜 데이터, 18시): "18시에는 샘플_명동, 샘플_홍대, 샘플_여의도공원이 가장 붐벼요"
         """
-        raise NotImplementedError
+        rows = []
+        for p in repo.all():
+            recs = [r for r in p.records if r.time.hour == self.hour]
+            if recs:
+                score = sum(r.congestion_score() for r in recs) / len(recs)
+                pop = sum(r.avg_population() for r in recs) / len(recs)
+                rows.append((score, pop, p.name))
+        if not rows:
+            return f"{self.hour}시 기록이 없어요"
+        top = [name for _, _, name in sorted(rows, key=lambda r: (-r[0], -r[1]))[:3]]
+        return f"{self.hour}시에는 {', '.join(top)}{subject_josa(top[-1])} 가장 붐벼요"
 
     def _district_layer(self, repo: PlaceRepository) -> pd.DataFrame:
         """repo.districts()로 자치구별 값 계산. 열: district, avg_congestion, total_population (self.hour 기준)
