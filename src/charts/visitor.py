@@ -14,7 +14,7 @@ import streamlit as st
 
 from ..models import Place
 from ..repository import PlaceRepository
-from .base import CATEGORY_COLORS, PRIMARY, PRIMARY_LIGHT, BaseChart, term
+from .base import CATEGORY_COLORS, PRIMARY, PRIMARY_LIGHT, BaseChart, josa, term
 
 
 class VisitorChart(BaseChart):
@@ -36,16 +36,19 @@ class VisitorChart(BaseChart):
         )
         self.category = None if selected == "전체" else selected
 
+    def detail_controls(self, repo: PlaceRepository) -> None:
+        """시간대별 거주·방문 그래프의 기간 (시작일·종료일)"""
         dates = [record.time.date() for place in repo.all() for record in place.records]
-        self.start = st.date_input(
+        c1, c2 = st.columns(2)
+        self.start = c1.date_input(
             "시작일", value=self.start or min(dates, default=None),
             key="visitor_start", help=term("방문자 비율"),
         )
-        self.end = st.date_input(
+        self.end = c2.date_input(
             "종료일", value=self.end or max(dates, default=None),
             key="visitor_end", help=term("방문자 비율"),
         )
-        st.caption("선택 기간은 자세히 보기의 시간대별 그래프에만 적용됩니다. 요약·순위·산점도는 전체 기간 평균입니다.")
+        st.caption("기간은 아래 시간대별 그래프에만 적용됩니다. 산점도는 전체 기간 평균입니다.")
 
     def render(self, repo: PlaceRepository, place: Optional[Place]) -> List[go.Figure]:
         """전체 기간 평균 방문자 비율이 높은 장소를 최대 10곳 보여준다."""
@@ -81,8 +84,8 @@ class VisitorChart(BaseChart):
             return ""
         rate = place.avg_visitor_rate()
         if rate >= 50:
-            return f"{place.name}는 방문객이 {rate:.0f}%로, 주로 다른 동네에서 찾아오는 곳이에요"
-        return f"{place.name}는 주민이 {100 - rate:.0f}%로, 주로 동네 사람이 찾는 곳이에요"
+            return f"{place.name}{josa(place.name, '은/는')} 방문객이 {rate:.0f}%로, 주로 다른 동네에서 찾아오는 곳이에요"
+        return f"{place.name}{josa(place.name, '은/는')} 주민이 {100 - rate:.0f}%로, 주로 동네 사람이 찾는 곳이에요"
 
     def details(self, repo: PlaceRepository, place: Optional[Place]) -> List[go.Figure]:
         """기존 산점도와 선택 장소의 시간대별 거주·방문 누적 막대를 반환한다."""

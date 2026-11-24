@@ -8,6 +8,7 @@ DashboardApp은 차트 종류와 상관없이 아래 순서로 호출한다.
     summary_text(repo, place)   한 문장 요약 (그래프 위에 크게)          ← 기말 추가
     summary_cards(place)        숫자 카드
     render(repo, place)         기본 그래프 (누구나 바로 이해하는 것)
+    detail_controls(repo)       "자세히 보기" 안의 조작 버튼            ← 기말 추가
     details(repo, place)        "자세히 보기" 안의 그래프 (분석용)      ← 기말 추가
 
 용어 설명은 GLOSSARY에 모아 두고, 조작 버튼의 help=term("혼잡도") 처럼 쓴다.
@@ -55,6 +56,18 @@ def term(name: str) -> str:
     return GLOSSARY.get(name, "")
 
 
+def josa(word: str, pair: str) -> str:
+    """받침에 맞는 조사. pair는 "은/는", "이/가", "을/를", "과/와" 처럼 받침 있을 때/없을 때 순서
+    예) josa("경복궁", "은/는") → "은",  josa("강남역", "이/가") → "이",  josa("홍대", "은/는") → "는" """
+    with_batchim, without = pair.split("/")
+    for ch in reversed(word):
+        if "가" <= ch <= "힣":
+            return with_batchim if (ord(ch) - ord("가")) % 28 else without
+        if ch.isdigit():                      # 숫자로 끝나면 읽는 소리로 (0 영, 1 일, 3 삼, 6 육, 7 칠, 8 팔)
+            return with_batchim if ch in "013678" else without
+    return with_batchim
+
+
 class BaseChart(ABC):
     title: str = "차트 제목"
     owner: str = "담당자"
@@ -73,6 +86,9 @@ class BaseChart(ABC):
     def summary_text(self, repo: PlaceRepository, place: Optional[Place]) -> str:
         """그래프를 안 봐도 답이 되는 한 문장 (예: "강남역은 평일 18시가 가장 붐벼요"). 기본: 없음"""
         return ""
+
+    def detail_controls(self, repo: PlaceRepository) -> None:
+        """'자세히 보기' 안에서 details()에만 쓰는 조작 버튼. 기본: 없음"""
 
     def details(self, repo: PlaceRepository, place: Optional[Place]) -> List[go.Figure]:
         """'자세히 보기'를 펼쳐야 보이는 분석용 그래프 목록. 기본: 없음"""

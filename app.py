@@ -58,10 +58,10 @@ class DashboardApp:
                 col.metric(k, v)
         for fig in call("render", self.repo, self.place, default=[]) or []:
             st.plotly_chart(fig, width="stretch")
-        extra = call("details", self.repo, self.place, default=[]) or []
-        if extra:
+        if type(chart).details is not BaseChart.details:          # details를 만든 페이지만
             with st.expander("자세히 보기"):
-                for fig in extra:
+                call("detail_controls", self.repo)
+                for fig in call("details", self.repo, self.place, default=[]) or []:
                     st.plotly_chart(fig, width="stretch")
         if missing:
             st.info(f"{chart.owner} 담당: 구현 전 ({', '.join(missing)})")

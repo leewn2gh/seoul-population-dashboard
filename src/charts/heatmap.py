@@ -28,15 +28,7 @@ class CongestionHeatmapChart(BaseChart):
         self.weekday: int = 0                   # [기말] 고른 요일 0=월 ~ 6=일 (controls에 요일 선택 추가)
 
     def controls(self, repo: PlaceRepository) -> None:
-        """혼잡도 / 인구 수 전환 버튼을 만들고 self.metric에 저장"""
-
-        choice = st.radio("보기 기준", ["혼잡도", "인구 수"], key="heatmap_metric")
-
-        if choice == "혼잡도":
-            self.metric = "congestion_score"
-        else:
-            self.metric = "avg_population"
-
+        """요일 선택 → self.weekday"""
         day = st.selectbox("요일", WEEKDAYS, index=self.weekday, key="heatmap_weekday", help=term("예상 혼잡도"))
         self.weekday = WEEKDAYS.index(day)
 
@@ -65,6 +57,11 @@ class CongestionHeatmapChart(BaseChart):
             return ""
         day = WEEKDAYS[self.weekday]
         return f"{place.name} {day}요일은 {busy[0][0]}시가 가장 붐비고, {best[0][0]}시가 가장 한산해요"
+
+    def detail_controls(self, repo: PlaceRepository) -> None:
+        """히트맵 보기 기준: 혼잡도 / 인구 수 → self.metric"""
+        choice = st.radio("보기 기준", ["혼잡도", "인구 수"], key="heatmap_metric", horizontal=True)
+        self.metric = "congestion_score" if choice == "혼잡도" else "avg_population"
 
     def details(self, repo: PlaceRepository, place: Optional[Place]) -> List[go.Figure]:
         """지금 render()에 있는 요일 × 시간 히트맵을 그대로 옮겨서 돌려준다 (혼잡도/인구 수 전환도 그대로)"""

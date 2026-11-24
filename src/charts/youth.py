@@ -28,7 +28,8 @@ class YouthChart(BaseChart):
         self.category: Optional[str] = None   # None이면 전체 분류
         self.top_n: int = 10
 
-    def controls(self, repo: PlaceRepository) -> None:
+    def detail_controls(self, repo: PlaceRepository) -> None:
+        """상위 N개 비교 그래프용: 장소 분류, 상위 N개"""
         choice = st.selectbox("장소 분류", [ALL_CATEGORIES] + repo.categories(), key="youth_category",
                               help=term("10~30대 비율"))
         self.category = None if choice == ALL_CATEGORIES else choice
