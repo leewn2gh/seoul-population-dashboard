@@ -8,9 +8,10 @@
 
 차트 담당은 이 파일을 수정하지 않는다. 필요한 기능은 톡방에 요청한다.
 """
+import math
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -85,6 +86,7 @@ class Place:
     district: Optional[str] = None     # 자치구 (예: "강남구")
     records: List[PopulationRecord] = field(default_factory=list)
     city_records: List[CityRecord] = field(default_factory=list)
+    location: Optional[Tuple[float, float]] = None   # (위도, 경도). 장소 영역의 중심
 
     def add_record(self, record: PopulationRecord) -> None:
         self.records.append(record)
@@ -148,7 +150,16 @@ class Place:
         """start ~ end (날짜, 양끝 포함) 기록만 담은 새 Place"""
         keep = lambda r: start <= r.time.date() <= end
         return Place(self.name, self.code, self.category, self.district,
-                     [r for r in self.records if keep(r)], [r for r in self.city_records if keep(r)])
+                     [r for r in self.records if keep(r)], [r for r in self.city_records if keep(r)],
+                     self.location)
+
+    def distance_km(self, lat: float, lng: float) -> Optional[float]:
+        """(lat, lng)에서 이 장소 중심까지 직선거리(km). 좌표가 없으면 None"""
+        if self.location is None:
+            return None
+        lat1, lng1, lat2, lng2 = map(math.radians, (lat, lng, *self.location))
+        a = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lng2 - lng1) / 2) ** 2
+        return 6371.0 * 2 * math.asin(math.sqrt(a))
 
     def to_dataframe(self) -> pd.DataFrame:
         """
